@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python
 #
 # main.py
 # Copyright (C) WoodenJesus 2007 <woodenjesus666@gmail.com>
@@ -34,6 +34,8 @@ import mediainfo
 import threading, time
 import os, select
 import re
+#import woma.ProgressBar
+from woma.ProgressBar import *
 
 woma = None
 if '--version' in sys.argv:
@@ -48,7 +50,7 @@ class WomaWindow:
 	def __init__(self):
 		
 		#SET SOCKET
-		
+		#print woma
 		self.getfileinfo = mediainfo.mediainfo ()
 		self.glade = gtk.glade.XML("main.glade")
 		self.window = self.glade.get_widget('main')
@@ -69,10 +71,10 @@ class WomaWindow:
 		self.videobox.set_shadow_type (gtk.SHADOW_NONE)
 		self.videobox.set_border_width (0)
 		
-
+		self.statusbar = self.glade.get_widget('statusbar')
 		
-		self.hbox2 = self.glade.get_widget('hbox3')
-		self.position = self.glade.get_widget('hscale1')
+		self.hbox2 = self.glade.get_widget('hbox2')
+		#self.positionbar = self.glade.get_widget('hscale1')
 
 		self.socket = gtk.Socket()
 
@@ -82,20 +84,31 @@ class WomaWindow:
 
 		lol = self.videobox.check_resize()
 		self.socket_id = self.socket.get_id()
-	
-		self.volume = gtk.VolumeButton()
-		self.hbox2.add(self.volume)
-		adj = gtk.Adjustment (lower = 0, upper = 100, step_incr = 2)
-		self.volume.set_adjustment (adj)
+		
 
+		self.volumebar = gtk.VolumeButton()
+		#self.volume = gtk.Range()
+		self.hbox2.pack_end(self.volumebar, expand=False, fill=False, padding=0)
+		adj = gtk.Adjustment (lower = 0, upper = 100, step_incr = 2)
+		self.volumebar.set_adjustment (adj)
+		
+		self.progresss = ProgressBar()
+		self.hehehe = self.glade.get_widget('vbox1')
+		self.hbox2.pack_end (self.progresss)
+		self.progresss.set_max_value (1000)
+		self.progresss.connect("value-changed", self.setPosition) # Connect the signal handler for the button	
+		
 		#CREATE VIDEO OBJECT
-		self.video = Video(self.socket_id, self.volume, self.position)
+		self.video = Video(self.socket_id, self.volumebar, self.progresss, self.statusbar)
 		#self.connect_events(self.video)
+
+
 
 		#connect_events(self, video)
 
 		self.window = self.glade.get_widget('main')
 		self.playbar = self.glade.get_widget('playtoolbar')
+
 		#self.videobox.add(self.socket)
 
 
@@ -128,12 +141,18 @@ class WomaWindow:
 		
 		#self.videobox.connect("size-allocate", self.ScaleVideo)
 		
-		self.volume.connect("value-changed", self.video.setVolume) # Connect the signal handler for the button
-		#self.volume.connect("change-value", self.video.loli) # Connect the signal handler for the button		
+		self.volumebar.connect("value-changed", self.setVolume) # Connect the signal handler for the button
+		#self.volumebar.connect("change-value", self.video.loli) # Connect the signal handler for the button		
 		
-		self.position.set_update_policy (gtk.UPDATE_DELAYED)
-		self.position.connect("change-value", self.video.lolen) # Connect the signal handler for the button
-		self.position.connect("value-changed", self.video.setPosition) # Connect the signal handler for the button
+		#self.positionbar.set_update_policy (gtk.UPDATE_DELAYED)
+		#self.positionbar.connect("change-value", self.setPositionBegin) # Connect the signal handler for the button
+		#self.positionbar.connect("value-changed", self.setPosition) # Connect the signal handler for the button
+		#self.positionbar.connect("value-changed", self.video.setPosition) # Connect the signal handler for the button
+		#self.positionbar.connect("change-value", self.setPositionBegin)
+		#self.positionbar.connect("button-release-event", self.video.setPositionUnlock)
+		#self.positionbar.connect("button-press-event", self.video.setPositionLock)
+		#self.positionbar.disabled = gtk.TRUE
+		
 
 		
 		self.window.show_all()
@@ -188,7 +207,7 @@ class WomaWindow:
 			#print self.media
 			lolek = float (self.media['VIDEO']['WIDTH']) / float (self.media['VIDEO']['HEIGHT'])
 			self.videobox.set ( xalign=0.5, yalign=0.5, ratio=lolek, obey_child=False)
-			self.position.set_range (0, int (self.dlugosc[0]))
+			self.progresss.set_range (0, int (self.dlugosc[0]))
 			
 			print lolek
 			if self.media['VIDEO']['WIDTH'] == '1280':
@@ -201,6 +220,21 @@ class WomaWindow:
 
 	def open_video(self, socket_id):
 		return Video(self.socket_id)
+	
+	def setVolume (self, scale, *trash):
+		pass
+	
+	def setPosition (self, scale, *trash):
+		if scale.get_lock() == True:
+			self.video.vstdin.write('get_time_pos\n')
+			self.video.vstdin.write('seek ' + str(round(scale.get_value())) + ' 2\n')
+			#scale.seek_unlock()
+
+	def setPositionBegin (self, scale, *trash):
+		self.video.position_lock = True
+		pass
+	
+		
 		
 	def Exit (self, *args):
 		if self.video.playstatus != "STOP":
@@ -218,35 +252,53 @@ class OutputParse ( threading.Thread ):
 			
 			if self.video.playstatus == "PLAY":	
 				self.video.exitstatus = self.video.wait ( )
-				self.video.exitstatus
 				if "NONE" not in self.video.exitstatus:
 					self.video.playstatus = "STOP"
+					
 				
 			if self.video.playstatus == "PLAY":	
 				#if self.video.position_lock == False:
 				self.video.vstdin.write('get_time_pos\n')
 				self.video.vstdin.write('get_property volume\n')
 				lol =  os.read (self.video.vstdout.fileno(), 10000)
-				#print lol
 				#media_regex = re.compile ('ANS_volume=(\w+)')
 				#media_temp = media_regex.findall (lol)
 				#if len (media_temp) > 0:
-					#print media_temp.pop()
-					#self.video.volume.set_value(int(media_temp.pop()))
+				#	self.video.volume.set_value(int(media_temp.pop()))
 				media_regex = re.compile ('ANS_TIME_POSITION=(\w+)')
 				media_temp = media_regex.findall (lol)
-				if len (media_temp) > 0 and self.video.position_lock == False:
+				#print self.video.threadsafe
+				#print self.video.positionbar.get_lock()
+				if len (media_temp) > 0 :
 					#print media_temp
-					self.video.position.set_value(int(media_temp.pop()))
-			time.sleep( 0.1 )
-			
+					if self.video.positionbar.get_lock() == False:
+						self.video.positionbar.set_position(int(media_temp.pop()))
+					#print self.video.position.get_value()
+					#print self.video.positionbar.get_value()
+			time.sleep( 0.1)
+
+class Unlock( threading.Thread ):
+		def __init__ (self, video):
+			threading.Thread.__init__(self)
+			self.video = video
+		
+		def run ( self ):
+			self.video.threadsafe = self.video.threadsafe + 1
+			time.sleep (1.0)
+			self.video.threadsafe = self.video.threadsafe -1
+			if self.video.threadsafe == 0:
+				self.video.position_lock = False
+
 
 class Video:
 
-	def __init__(self, socket_id, volume, position):
+	def __init__(self, socket_id, volume, position, statusbar):
 		
-		
-		print self
+#		self.glade = gtk.glade.XML("main.glade")
+
+		self.statusbar = statusbar
+		self.hihi = self.statusbar.get_context_id('id_0')
+		self.hehe = self.statusbar.get_context_id('id_1')
 		self.video = None
 		self.position_lock = False
 		self.played = 0
@@ -254,8 +306,17 @@ class Video:
 		self.socket_id = socket_id
 		self.path = None
 		self.exitstatus = 'LOL'
-		self.position = position
-		self.volume = volume
+		self.positionbar = position
+		self.volumebar = volume
+		self.threadsafe = 0
+		
+		self.volume = gtk.HScale(gtk.Adjustment(lower = 0, upper = 100))
+		self.volume.connect("value-changed", self.setVolume)
+		
+		self.position = gtk.HScale(gtk.Adjustment(lower = 0, upper = 100000))
+		#self.position.connect("change-value", self.setPosition)
+		self.position.connect("value-changed", self.setPosition2)
+		
 		self.playstatus = "STOP"
 		#if (sys.argv[1] != None):
 		#	self.path = sys.argv[1]
@@ -323,7 +384,7 @@ class Video:
 		#threading.Thread.__init__()
 		
 		self.vstdin.write('set_property volume 30')
-		self.volume.set_value (50)
+		self.volumebar.set_value (50)
 		
 		self.Parser = OutputParse(self)
 		self.Parser.setDaemon (True)
@@ -354,22 +415,56 @@ class Video:
 		#print 'lol'
 		self.position_lock = True
 		#print 'lolen'
-		#print self.position_lock
+		#print self.positionbar_lock
 		
 		
 		#gtk.gdk.threads_leave()
+	def setPosition2 (self, scale, *lol):	
+		if self.position_lock == False:
+			self.positionbar.set_value (scale.get_value())
 	
 	def setPosition (self, scale, *lol):
 		#gtk.gdk.threads_enter()
-		if self.position_lock == True:
-			scale.set_value (int(round(scale.get_value())))
-			self.vstdin.write('get_time_pos\n')
-			self.vstdin.write('seek ' + str(round(scale.get_value())) + ' 2\n')
-			self.position_lock = False
-			#print self.position_lock		
+		#if self.playstatus == "PLAY":
+			if self.position_lock == False:
+				self.positionbar.set_value (scale.get_value())
+			else:
+				if self.playstatus != "STOP":
+					self.vstdin.write('get_time_pos\n')
+					self.vstdin.write('seek ' + str(round(scale.get_value())) + ' 2\n')
+					self.position.set_value( round(scale.get_value()))
+					if self.playstatus == "PAUSE":
+						self.playstatus = "PLAY"
+				
+						sec = self.position.get_value() % 60
+						min = round(self.position.get_value() / 60)
+					#hour = 
+						self.statusbar.push(self.hihi, self.playstatus)
+						self.statusbar.push(self.hehe, str(min)+':'+str(sec))
+			
+	def setPositionUnlock(self, scale, *lol):
+		self.loll = Unlock(self)
+		self.loll .setDaemon (True)
+		self.loll.start()
+	
+	def setPositionLock(self, scale, *lol):
+		self.position_lock = True
+			#self.statusbar.pop(self.hehe)
+			
+			#self.statusbar.push(0, str(scale.get_value()))
+
+			#print str(scale.get_value())
+			#print self.hehe
+				#time.sleep( 0.2 )
+				#self.position_lock = False
+	
+			#self.vstdin.write('get_time_pos\n')
+			#self.vstdin.write('seek ' + str(round(scale.get_value())) + ' 2\n')
+			#self.position_lock = False
+				
 	def setVolume (self, scale, *lol):
-		self.vstdin.write('set_property volume ' + str(round(scale.get_value())) + '\n')			
-		self.vstdin.write('pause\n')
+		if self.playstatus == "PLAY":
+			self.volumebar.set_value(self.volume.get_value())
 		
 	def pauseplay(self, button):
 		if "NONE" in self.exitstatus:
